@@ -12,23 +12,43 @@ import DestinationSelect from "@/components/app/DestinationSelect";
 const SRC = [["manual", "Manual"], ["whatsapp", "WhatsApp"], ["website", "Website"]];
 const EMPTY = { customer_name: "", phone: "", email: "", source: "manual", destination: "", trip_date: "", pax: "", value: "", message: "", assigned_to: "auto" };
 
-export default function LeadFormDialog({ open, onOpenChange, agents, onSaved }) {
+// Tambah (initial=null) atau Edit lead (initial=lead). Edit memakai PATCH /leads/{id}.
+export default function LeadFormDialog({ open, onOpenChange, agents, onSaved, initial = null }) {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (open) setForm(EMPTY); }, [open]);
+  const editing = Boolean(initial && initial.id);
+  useEffect(() => {
+    if (!open) return;
+    setForm(editing ? {
+      customer_name: initial.customer_name || "", phone: initial.phone || "", email: initial.email || "",
+      source: initial.source || "manual", destination: initial.destination || "",
+      trip_date: (initial.trip_date || "").slice(0, 10), pax: initial.pax ?? "", value: initial.value ?? "",
+      message: initial.message || "", assigned_to: initial.assigned_to || "auto",
+    } : EMPTY);
+  }, [open, editing, initial]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async () => {
     if (!form.customer_name.trim()) { toast.error("Nama calon customer wajib diisi"); return; }
     setSaving(true);
     try {
-      await apiClient.post("/leads", {
-        customer_name: form.customer_name.trim(), phone: form.phone, email: form.email,
-        source: form.source, destination: form.destination, trip_date: form.trip_date || null,
-        pax: Number(form.pax) || 1, value: Number(form.value) || 0, message: form.message,
-        assigned_to: form.assigned_to === "auto" ? null : form.assigned_to,
-      });
-      toast.success("Lead ditambahkan");
+      if (editing) {
+        await apiClient.patch(`/leads/${initial.id}`, {
+          customer_name: form.customer_name.trim(), phone: form.phone, email: form.email,
+          destination: form.destination, trip_date: form.trip_date || null,
+          pax: Number(form.pax) || 1, value: Number(form.value) || 0, message: form.message,
+          ...(form.assigned_to !== "auto" ? { assigned_to: form.assigned_to } : {}),
+        });
+        toast.success("Lead diperbarui");
+      } else {
+        await apiClient.post("/leads", {
+          customer_name: form.customer_name.trim(), phone: form.phone, email: form.email,
+          source: form.source, destination: form.destination, trip_date: form.trip_date || null,
+          pax: Number(form.pax) || 1, value: Number(form.value) || 0, message: form.message,
+          assigned_to: form.assigned_to === "auto" ? null : form.assigned_to,
+        });
+        toast.success("Lead ditambahkan");
+      }
       onOpenChange(false); onSaved && onSaved();
     } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menyimpan lead"); } finally { setSaving(false); }
   };
@@ -36,14 +56,17 @@ export default function LeadFormDialog({ open, onOpenChange, agents, onSaved }) 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg" data-testid="lead-form-dialog">
-        <DialogHeader><DialogTitle>Tambah Lead</DialogTitle><DialogDescription>Buat lead manual. Bisa auto-assign ke agen.</DialogDescription></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit Lead" : "Tambah Lead"}</DialogTitle>
+          <DialogDescription>{editing ? "Ubah data kontak & kebutuhan trip lead." : "Buat lead manual. Bisa auto-assign ke agen."}</DialogDescription>
+        </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5"><Label>Nama</Label><Input value={form.customer_name} onChange={(e) => set("customer_name", e.target.value)} placeholder="Nama / instansi" data-testid="lf-name" /></div>
             <div className="space-y-1.5"><Label>Sumber</Label>
-              <Select value={form.source} onValueChange={(v) => set("source", v)}>
+              <Select value={form.source} onValueChange={(v) => set("source", v)} disabled={editing}>
                 <SelectTrigger data-testid="lf-source"><SelectValue /></SelectTrigger>
-                <SelectContent>{SRC.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+                <SelectContent>{SRC.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}{editing && !SRC.some(([v]) => v === form.source) ? <SelectItem value={form.source}>{form.source}</SelectItem> : null}</SelectContent>
               </Select></div>
             <div className="space-y-1.5"><Label>Telepon</Label><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="0812xxxx" data-testid="lf-phone" /></div>
             <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} data-testid="lf-email" /></div>
@@ -55,7 +78,7 @@ export default function LeadFormDialog({ open, onOpenChange, agents, onSaved }) 
           <div className="space-y-1.5"><Label>Ditugaskan</Label>
             <Select value={form.assigned_to} onValueChange={(v) => set("assigned_to", v)}>
               <SelectTrigger data-testid="lf-assign"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="auto">Otomatis (round-robin)</SelectItem>{(agents || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
+              <SelectContent><SelectItem value="auto">{editing ? "— Tidak diubah —" : "Otomatis (round-robin)"}</SelectItem>{(agents || []).map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
             </Select></div>
           <div className="space-y-1.5"><Label>Pesan</Label><Textarea value={form.message} onChange={(e) => set("message", e.target.value)} rows={2} data-testid="lf-message" /></div>
         </div>

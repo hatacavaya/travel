@@ -18,16 +18,19 @@ const CATEGORIES = [
   ["other", "Lainnya"],
 ];
 
-export default function ExpenseFormDialog({ open, onOpenChange, onSaved }) {
+export default function ExpenseFormDialog({ open, onOpenChange, onSaved, initial = null }) {
+  const editing = Boolean(initial && initial.id);
   const [bookings, setBookings] = useState([]);
   const [form, setForm] = useState({ booking_id: "none", category: "bbm", amount: "", note: "" });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setForm({ booking_id: "none", category: "bbm", amount: "", note: "" });
+    setForm(editing
+      ? { booking_id: initial.booking_id || "none", category: initial.category || "other", amount: initial.amount ?? "", note: initial.note || "" }
+      : { booking_id: "none", category: "bbm", amount: "", note: "" });
     apiClient.get("/bookings").then((r) => setBookings(Array.isArray(r.data) ? r.data : [])).catch(() => setBookings([]));
-  }, [open]);
+  }, [open, editing, initial]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -36,11 +39,10 @@ export default function ExpenseFormDialog({ open, onOpenChange, onSaved }) {
     if (!amt || amt <= 0) { toast.error("Nominal pengeluaran tidak valid"); return; }
     setSaving(true);
     try {
-      await apiClient.post("/expenses", {
-        booking_id: form.booking_id === "none" ? null : form.booking_id,
-        category: form.category, amount: amt, note: form.note,
-      });
-      toast.success("Pengeluaran tercatat");
+      const payload = { booking_id: form.booking_id === "none" ? null : form.booking_id, category: form.category, amount: amt, note: form.note };
+      if (editing) await apiClient.patch(`/expenses/${initial.id}`, payload);
+      else await apiClient.post("/expenses", payload);
+      toast.success(editing ? "Pengeluaran diperbarui" : "Pengeluaran tercatat");
       onOpenChange(false);
       onSaved && onSaved();
     } catch (e) {
@@ -54,7 +56,7 @@ export default function ExpenseFormDialog({ open, onOpenChange, onSaved }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md" data-testid="expense-form-dialog">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Receipt size={17} className="text-[#007AFF]" /> Catat Pengeluaran</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Receipt size={17} className="text-[#007AFF]" /> {editing ? "Edit Pengeluaran" : "Catat Pengeluaran"}</DialogTitle>
           <DialogDescription>Pengeluaran operasional trip/booking (BBM, tol, uang jalan, dll).</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

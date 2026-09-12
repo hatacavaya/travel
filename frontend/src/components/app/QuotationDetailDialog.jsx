@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Send, CheckCircle2, XCircle, Download, ArrowRightCircle, FileText } from "lucide-react";
+import { Loader2, Send, CheckCircle2, XCircle, Download, ArrowRightCircle, FileText, Pencil, Trash2 } from "lucide-react";
+import QuotationEditDialog from "@/components/app/QuotationEditDialog";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import apiClient from "@/services/apiClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -35,6 +37,18 @@ export default function QuotationDetailDialog({ quotationId, open, onOpenChange,
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [cv, setCv] = useState({ vehicle_id: "", driver_id: "", start: "", end: "" });
+  const [editOpen, setEditOpen] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      await apiClient.delete(`/quotations/${quotationId}`);
+      toast.success("Penawaran dihapus");
+      setDelOpen(false); onOpenChange(false); onChanged && onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menghapus penawaran"); }
+    finally { setBusy(false); }
+  };
 
   const load = useCallback(() => {
     if (!quotationId) return;
@@ -83,6 +97,7 @@ export default function QuotationDetailDialog({ quotationId, open, onOpenChange,
   const st = quo ? (QUO[quo.status] || { l: quo.status, tone: "neutral" }) : null;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto" data-testid="quotation-detail-dialog">
         <DialogHeader>
@@ -118,6 +133,8 @@ export default function QuotationDetailDialog({ quotationId, open, onOpenChange,
 
             <div className="flex flex-wrap gap-2">
               <button className="secondary-button" onClick={downloadPdf} data-testid="qd-pdf"><Download size={14} /> PDF</button>
+              {["draft", "sent"].includes(quo.status) ? <button className="secondary-button" onClick={() => setEditOpen(true)} disabled={busy} data-testid="qd-edit"><Pencil size={14} /> Edit</button> : null}
+              {["draft", "sent", "rejected", "expired"].includes(quo.status) && !quo.booking_id ? <button className="secondary-button !text-[#A8221A]" onClick={() => setDelOpen(true)} disabled={busy} data-testid="qd-delete"><Trash2 size={14} /> Hapus</button> : null}
               {["draft", "sent"].includes(quo.status) ? <button className="secondary-button" onClick={() => action("send", "Penawaran ditandai terkirim")} disabled={busy} data-testid="qd-send"><Send size={14} /> Kirim</button> : null}
               {["draft", "sent"].includes(quo.status) ? <button className="secondary-button" onClick={() => action("accept", "Penawaran diterima")} disabled={busy} data-testid="qd-accept"><CheckCircle2 size={14} /> Tandai Diterima</button> : null}
               {["draft", "sent", "accepted"].includes(quo.status) ? <button className="secondary-button" onClick={() => action("reject", "Penawaran ditolak")} disabled={busy} data-testid="qd-reject"><XCircle size={14} /> Tolak</button> : null}
@@ -150,5 +167,10 @@ export default function QuotationDetailDialog({ quotationId, open, onOpenChange,
         )}
       </DialogContent>
     </Dialog>
+    <QuotationEditDialog quo={quo} open={editOpen} onOpenChange={setEditOpen} onSaved={() => { load(); onChanged && onChanged(); }} />
+    <ConfirmDialog open={delOpen} onOpenChange={setDelOpen} title="Hapus penawaran?"
+      description={quo ? `Penawaran ${quo.number} untuk "${quo.customer_name}" akan dihapus permanen.` : ""}
+      busy={busy} onConfirm={doDelete} testId="quotation-delete-confirm" />
+    </>
   );
 }

@@ -15,6 +15,7 @@ from db import get_db
 from dependencies import require_section
 from schemas import (LeadActivityCreate, LeadAssign, LeadConvert, LeadCreate,
                      LeadStageUpdate, LeadUpdate)
+from services.audit import record
 from services.crm import (LEAD_STAGE_SET, LEAD_STAGES, OPEN_STAGES, STAGE_LABEL,
                           assignable_agents, auto_assign_agent, log_activity)
 from services.events import emit
@@ -217,6 +218,24 @@ async def update_lead(lead_id: str, body: LeadUpdate, user=Depends(CRM)):
     await apply_lead_growth(db, lead_id)
     doc = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     return _enrich(doc, await _users_map(db))
+
+
+@router.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str, user=Depends(CRM)):
+    """Hapus lead + aktivitasnya. Lead 'won' / punya penawaran terkonversi dilindungi (jejak revenue)."""
+    db = get_db()
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead tidak ditemukan")
+    if lead.get("stage") == "won" or lead.get("converted_customer_id"):
+        raise HTTPException(status_code=400, detail="Lead yang sudah menang/terkonversi tidak bisa dihapus")
+    if await db.quotations.find_one({"lead_id": lead_id, "status": "converted"}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=400, detail="Lead punya penawaran yang sudah jadi booking")
+    await db.leads.delete_one({"id": lead_id})
+    await db.lead_activities.delete_many({"lead_id": lead_id})
+    await record(db, actor=user, action="delete", entity_type="lead", entity_id=lead_id,
+                 before=lead, summary=f"Hapus lead {lead.get('customer_name')}")
+    return {"ok": True, "id": lead_id}
 
 
 @router.post("/leads/{lead_id}/stage")

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core_utils import money, new_id, now_iso, safe_doc
 from db import get_db
 from dependencies import require_section
-from schemas import ExpenseCreate
+from schemas import ExpenseCreate, ExpenseUpdate
 from services.audit import record
 from services.finance import EXPENSE_CATEGORIES, recompute_trip_profit
 
@@ -62,3 +62,50 @@ async def create_expense(body: ExpenseCreate, user=Depends(FIN)):
                  after=doc,
                  summary=f"Catat pengeluaran {category} Rp {int(doc['amount']):,}".replace(",", "."))
     return safe_doc(doc)
+
+
+@router.patch("/expenses/{expense_id}")
+async def update_expense(expense_id: str, body: ExpenseUpdate, user=Depends(FIN)):
+    db = get_db()
+    before = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    if not before:
+        raise HTTPException(status_code=404, detail="Pengeluaran tidak ditemukan")
+    updates = {}
+    data = body.model_dump(exclude_unset=True)
+    if "booking_id" in data:
+        bid = data["booking_id"] or None
+        booking = await db.bookings.find_one({"id": bid}, {"_id": 0, "code": 1}) if bid else None
+        if bid and not booking:
+            raise HTTPException(status_code=400, detail="Booking tidak ditemukan")
+        updates["booking_id"] = bid
+        updates["booking_code"] = (booking or {}).get("code")
+    if data.get("category") is not None:
+        updates["category"] = data["category"] if data["category"] in EXPENSE_CATEGORIES else "other"
+    if data.get("amount") is not None:
+        updates["amount"] = money(data["amount"])
+    if data.get("note") is not None:
+        updates["note"] = data["note"]
+    if updates:
+        updates["updated_at"] = now_iso()
+        await db.expenses.update_one({"id": expense_id}, {"$set": updates})
+    if before.get("trip_id"):
+        await recompute_trip_profit(db, before["trip_id"])
+    doc = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    await record(db, actor=user, action="update", entity_type="expense", entity_id=expense_id,
+                 before=before, after=doc, summary=f"Ubah pengeluaran {doc.get('category')}")
+    return safe_doc(doc)
+
+
+@router.delete("/expenses/{expense_id}")
+async def delete_expense(expense_id: str, user=Depends(FIN)):
+    db = get_db()
+    before = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    if not before:
+        raise HTTPException(status_code=404, detail="Pengeluaran tidak ditemukan")
+    await db.expenses.delete_one({"id": expense_id})
+    if before.get("trip_id"):
+        await recompute_trip_profit(db, before["trip_id"])
+    await record(db, actor=user, action="delete", entity_type="expense", entity_id=expense_id,
+                 before=before,
+                 summary=f"Hapus pengeluaran {before.get('category')} Rp {int(before.get('amount') or 0):,}".replace(",", "."))
+    return {"ok": True, "id": expense_id}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Phone, Mail, MapPin, Users, CalendarDays, MessageCircle, UserCheck, ArrowRightLeft, StickyNote, CheckCircle2, FileText, Megaphone, BadgeCheck, ShieldOff, LayoutTemplate } from "lucide-react";
+import { Loader2, Phone, Mail, MapPin, Users, CalendarDays, MessageCircle, UserCheck, ArrowRightLeft, StickyNote, CheckCircle2, FileText, Megaphone, BadgeCheck, ShieldOff, LayoutTemplate, Pencil, Trash2 } from "lucide-react";
 import apiClient from "@/services/apiClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { StatusPill } from "@/components/shared/StatusPill";
 import { formatDate, formatDateTime } from "@/utils/formatters";
 import QuotationFormDialog from "@/components/app/QuotationFormDialog";
 import BookingFormDialog from "@/components/app/BookingFormDialog";
+import LeadFormDialog from "@/components/app/LeadFormDialog";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 
 const STAGES = [["new", "Baru"], ["contacted", "Dihubungi"], ["quoted", "Penawaran"], ["negotiation", "Negosiasi"], ["won", "Menang"], ["lost", "Hilang"]];
 const STAGE_TONE = { new: "info", contacted: "info", quoted: "warning", negotiation: "purple", won: "success", lost: "danger" };
@@ -40,6 +42,18 @@ export default function LeadDetailDrawer({ leadId, open, onOpenChange, agents, o
   const [quoOpen, setQuoOpen] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [bookPrefill, setBookPrefill] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      await apiClient.delete(`/leads/${lead.id}`);
+      toast.success("Lead dihapus");
+      setDelOpen(false); onOpenChange(false); onChanged && onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menghapus lead"); }
+    finally { setBusy(false); }
+  };
 
   const load = () => {
     if (!leadId) return;
@@ -112,7 +126,15 @@ export default function LeadDetailDrawer({ leadId, open, onOpenChange, agents, o
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl" data-testid="lead-detail-drawer">
         <DialogHeader>
-          <DialogTitle>{lead?.customer_name || "Detail Lead"}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 pr-6">
+            <span className="flex-1 truncate">{lead?.customer_name || "Detail Lead"}</span>
+            {lead ? (
+              <>
+                <button className="icon-button !h-8 !w-8" title="Edit lead" onClick={() => setEditOpen(true)} data-testid="lead-edit"><Pencil size={14} /></button>
+                <button className="icon-button !h-8 !w-8 !text-[#A8221A]" title="Hapus lead" onClick={() => setDelOpen(true)} data-testid="lead-delete"><Trash2 size={14} /></button>
+              </>
+            ) : null}
+          </DialogTitle>
           <DialogDescription>Kelola tahap, penugasan, catatan & konversi lead.</DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -234,6 +256,11 @@ export default function LeadDetailDrawer({ leadId, open, onOpenChange, agents, o
     <BookingFormDialog open={bookOpen} onOpenChange={setBookOpen}
       initial={bookPrefill?.initial || null} initialStart={bookPrefill?.start || ""}
       onCreated={onBookingCreated} />
+    <LeadFormDialog open={editOpen} onOpenChange={setEditOpen} agents={agents} initial={lead}
+      onSaved={() => after("Lead diperbarui")} />
+    <ConfirmDialog open={delOpen} onOpenChange={setDelOpen} title="Hapus lead?"
+      description={lead ? `Lead "${lead.customer_name}" beserta riwayat aktivitasnya akan dihapus permanen. Lead yang sudah menang (won) tidak bisa dihapus.` : ""}
+      busy={busy} onConfirm={doDelete} testId="lead-delete-confirm" />
     </>
   );
 }

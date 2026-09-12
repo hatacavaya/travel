@@ -172,8 +172,31 @@ async def update_quotation(quotation_id: str, body: QuotationDraftUpdate, user=D
     if updates:
         updates["updated_at"] = now_iso()
         await db.quotations.update_one({"id": quotation_id}, {"$set": updates})
+        await record(db, actor=user, action="update", entity_type="quotation", entity_id=quotation_id,
+                     after={k: updates[k] for k in ("total", "customer_name", "trip_date") if k in updates},
+                     summary=f"Ubah penawaran {quo.get('number')}")
     doc = await db.quotations.find_one({"id": quotation_id}, {"_id": 0})
     return safe_doc(doc)
+
+
+@router.delete("/quotations/{quotation_id}")
+async def delete_quotation(quotation_id: str, user=Depends(QUOT)):
+    """Hapus penawaran yang belum jadi booking (draft/terkirim/ditolak/kedaluwarsa)."""
+    db = get_db()
+    quo = await db.quotations.find_one({"id": quotation_id}, {"_id": 0})
+    if not quo:
+        raise HTTPException(status_code=404, detail="Penawaran tidak ditemukan")
+    if quo.get("booking_id") or quo.get("status") in ("converted", "accepted"):
+        raise HTTPException(status_code=400,
+                            detail="Penawaran yang sudah diterima/jadi booking tidak bisa dihapus — gunakan Tolak")
+    await db.quotations.delete_one({"id": quotation_id})
+    await record(db, actor=user, action="delete", entity_type="quotation", entity_id=quotation_id,
+                 before={"number": quo.get("number"), "total": quo.get("total"), "status": quo.get("status")},
+                 summary=f"Hapus penawaran {quo.get('number')}")
+    if quo.get("lead_id"):
+        await log_activity(db, quo["lead_id"], user.get("id"), "note",
+                           text=f"Penawaran {quo.get('number')} dihapus")
+    return {"ok": True, "id": quotation_id}
 
 
 async def _set_status(db, quotation_id, new_status, allowed_from, user, label):

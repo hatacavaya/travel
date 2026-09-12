@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   Banknote, Wallet, TrendingUp, Percent, Plus, FileText, Receipt, Download,
   PieChart as PieIcon, Calendar, FileSpreadsheet, Wrench, Truck,
-  GitCompareArrows, Waves, Send, Loader2, BellRing, Users,
+  GitCompareArrows, Waves, Send, Loader2, BellRing, Users, Pencil, Trash2,
 } from "lucide-react";
 import apiClient from "@/services/apiClient";
 import { LoadingState, EmptyState, ErrorState } from "@/components/shared/DataStates";
@@ -12,6 +12,7 @@ import { PaymentPill } from "@/components/shared/StatusPill";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/utils/formatters";
 import ExpenseFormDialog from "@/components/app/ExpenseFormDialog";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import InvoiceFormDialog from "@/components/app/InvoiceFormDialog";
 import PaymentDialog from "@/components/app/PaymentDialog";
 import FinanceReconciliation from "@/components/app/FinanceReconciliation";
@@ -275,6 +276,20 @@ function Expenses({ onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [delTarget, setDelTarget] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const doDelete = async () => {
+    if (!delTarget) return;
+    setBusy(true);
+    try {
+      await apiClient.delete(`/expenses/${delTarget.id}`);
+      toast.success("Pengeluaran dihapus");
+      setDelTarget(null); load(); onChanged && onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Gagal menghapus pengeluaran"); }
+    finally { setBusy(false); }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -286,7 +301,7 @@ function Expenses({ onChanged }) {
   useEffect(() => { load(); }, [load]);
 
   const addBtn = (
-    <button className="primary-button" onClick={() => setOpen(true)} data-testid="expense-add"><Plus size={14} /> Tambah Pengeluaran</button>
+    <button className="primary-button" onClick={() => { setEditing(null); setOpen(true); }} data-testid="expense-add"><Plus size={14} /> Tambah Pengeluaran</button>
   );
 
   return (
@@ -305,13 +320,20 @@ function Expenses({ onChanged }) {
                     <p className="text-[13px] font-semibold text-[#1C1C1E]">{CAT_LABEL[e.category] || e.category}{e.booking_code ? ` · ${e.booking_code}` : ""}</p>
                     <p className="truncate text-[11.5px] text-[#6B6B73]">{e.note || "-"} · {formatDate(e.created_at)}</p>
                   </div>
-                  <span className="flex-shrink-0 text-[14px] font-bold tabular-nums text-[#FF3B30]">-{formatCurrency(e.amount)}</span>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <span className="text-[14px] font-bold tabular-nums text-[#FF3B30]">-{formatCurrency(e.amount)}</span>
+                    <button className="icon-button !h-8 !w-8" title="Edit" onClick={() => { setEditing(e); setOpen(true); }} data-testid={`expense-edit-${e.id}`}><Pencil size={14} /></button>
+                    <button className="icon-button !h-8 !w-8 !text-[#A8221A]" title="Hapus" onClick={() => setDelTarget(e)} data-testid={`expense-delete-${e.id}`}><Trash2 size={14} /></button>
+                  </div>
                 </div>
               ))}
             </div>
           </section>
         )}
-      <ExpenseFormDialog open={open} onOpenChange={setOpen} onSaved={() => { load(); onChanged && onChanged(); }} />
+      <ExpenseFormDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={() => { load(); onChanged && onChanged(); }} />
+      <ConfirmDialog open={Boolean(delTarget)} onOpenChange={(v) => !v && setDelTarget(null)} title="Hapus pengeluaran?"
+        description={delTarget ? `${CAT_LABEL[delTarget.category] || delTarget.category} ${formatCurrency(delTarget.amount)} akan dihapus permanen.` : ""}
+        busy={busy} onConfirm={doDelete} testId="expense-delete-confirm" />
     </div>
   );
 }

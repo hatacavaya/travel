@@ -473,6 +473,13 @@ class ExpenseCreate(BaseModel):
     note: Optional[str] = Field(default="", max_length=1000)
 
 
+class ExpenseUpdate(BaseModel):
+    booking_id: Optional[str] = None
+    category: Optional[str] = None
+    amount: Optional[float] = Field(default=None, gt=0)
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
 class InvoiceCreate(BaseModel):
     booking_id: str = Field(min_length=1)
     kind: Optional[str] = Field(default="full", max_length=20)  # dp | settlement | full
